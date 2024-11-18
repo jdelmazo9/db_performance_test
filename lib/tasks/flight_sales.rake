@@ -46,7 +46,7 @@ namespace :flight_sales do
           if window_purchases.size >= 5
             current_level = 2
           elsif window_purchases.size >= 2
-            current_level [user_levels[client_id], 1].max
+            current_level = [user_levels[client_id], 1].max
           end
 
           # Update the highest level achieved by the user
