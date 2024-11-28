@@ -9,9 +9,9 @@ namespace :flight_sales do
 
       # Initialize data structures
       user_purchases = Hash.new { |hash, key| hash[key] = [] }
-      # {153 => [<FlightSale id: 1, ...>], 225 => [<FlightSale id: 2, ...>], ...}
+      # {'user_id_1' => [<FlightSale id: 1, ...>], 'user_id_2' => [<FlightSale id: 2, ...>], ...}
       user_levels = Hash.new(0)
-      # {153 => 0, 225 => 2, ...}
+      # {'user_id_1' => 0, 225 => 'user_id_2', ...}
       yearly_sales_amount_by_level = Hash.new { |hash, key| hash[key] = Hash.new(0) }
       # {2022 => {0 => 2452.25, 1 => 1131.40, 2 => 259.25}...}
 
@@ -126,3 +126,47 @@ namespace :flight_sales do
     puts "sql processing execution time: #{sql_time.round(2)} seconds"
   end
 end
+
+
+<<~SQL
+  WITH sales_table AS (
+    SELECT
+      purchase_datetime,
+      base_price + fees as amount,
+      client_id,
+      ROW_NUMBER() OVER (
+          PARTITION BY client_id
+          ORDER BY purchase_datetime
+        ) AS sale_number
+    FROM flight_sales
+  ),
+  intervals_detection AS (
+    SELECT
+      *,
+      CASE
+        WHEN purchase_datetime - interval '2 years' < LAG(purchase_datetime, 4) OVER (PARTITION BY client_id ORDER BY sale_number)
+        THEN 2
+        WHEN purchase_datetime - interval '2 years' < LAG(purchase_datetime, 1) OVER (PARTITION BY client_id ORDER BY sale_number)
+        THEN 1
+        ELSE 0
+        END AS level_achieved
+    FROM sales_table
+  ),
+  levels_detection AS (
+    SELECT
+      DATE_PART('year', purchase_datetime) as year,
+      amount,
+      client_id,
+      COALESCE(
+        MAX(level_achieved) OVER (PARTITION BY client_id ORDER BY sale_number ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+        ,0) as level
+    FROM intervals_detection
+  )
+  SELECT
+    year,
+    level,
+    SUM(amount) as total_amount
+  FROM levels_detection
+  GROUP BY year, level
+  ORDER BY year, level;
+SQL
